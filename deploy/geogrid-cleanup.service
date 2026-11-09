@@ -1,0 +1,11 @@
+# One-shot cleanup job, triggered by geogrid-cleanup.timer
+[Unit]
+Description=GeoGrid Web - delete expired job files
+
+[Service]
+Type=oneshot
+User=geogrid
+Group=geogrid
+WorkingDirectory=/opt/geogrid_web
+EnvironmentFile=/opt/geogrid_web/.env
+ExecStart=/opt/geogrid_web/venv/bin/python -m app.cleanup

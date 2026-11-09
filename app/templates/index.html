@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoGrid Web — تبدیل شیپ‌فایل به DGS</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #ffffff; --text: #1a1d23; --muted: #6b7280;
+    --accent: #2563eb; --accent-dark: #1d4ed8; --border: #e5e7eb;
+    --ok: #059669; --err: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --card: #1a1d23; --text: #e5e7eb; --muted: #9ca3af;
+      --accent: #3b82f6; --accent-dark: #60a5fa; --border: #2d3139;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1115; --card: #1a1d23; --text: #e5e7eb; --muted: #9ca3af;
+    --accent: #3b82f6; --accent-dark: #60a5fa; --border: #2d3139;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: Tahoma, "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px; max-width: 480px; width: 100%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .drop {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 28px;
+    text-align: center; cursor: pointer; transition: border-color .15s;
+  }
+  .drop:hover, .drop.drag { border-color: var(--accent); }
+  .drop input { display: none; }
+  .filename { margin-top: 10px; font-size: 13px; color: var(--muted); word-break: break-all; }
+  button {
+    width: 100%; padding: 13px; border: none; border-radius: 10px;
+    background: var(--accent); color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer; margin-top: 16px; transition: background .15s;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .price { font-size: 14px; color: var(--muted); margin-top: 14px; text-align: center; }
+  .price b { color: var(--text); }
+  .status { margin-top: 18px; padding: 14px; border-radius: 10px; font-size: 14px; display: none; }
+  .status.show { display: block; }
+  .status.info { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .status.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  .status.err { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
+  a.dl { display: block; text-align: center; margin-top: 10px; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; display: inline-block; vertical-align: middle; margin-left: 8px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>GeoGrid — تبدیل GIS به DIgSILENT</h1>
+  <div class="sub">فایل شیپ‌فایل خود را به‌صورت یک فایل ZIP (شامل .shp/.shx/.dbf/.prj) آپلود کنید.</div>
+
+  <div id="dropZone" class="drop">
+    <div>فایل ZIP را اینجا بکشید یا کلیک کنید</div>
+    <input type="file" id="fileInput" accept=".zip">
+    <div class="filename" id="filenameLabel"></div>
+  </div>
+
+  <div class="price" id="priceLabel"></div>
+
+  <button id="actionBtn" disabled>ابتدا فایل را انتخاب کنید</button>
+
+  <div class="status" id="statusBox"></div>
+</div>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const filenameLabel = document.getElementById('filenameLabel');
+const priceLabel = document.getElementById('priceLabel');
+const actionBtn = document.getElementById('actionBtn');
+const statusBox = document.getElementById('statusBox');
+
+let selectedFile = null;
+let currentJobId = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+  if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; onFileChosen(); }
+});
+fileInput.addEventListener('change', onFileChosen);
+
+function onFileChosen() {
+  if (!fileInput.files.length) return;
+  selectedFile = fileInput.files[0];
+  filenameLabel.textContent = selectedFile.name;
+  actionBtn.disabled = false;
+  actionBtn.textContent = 'آپلود و مشاهده هزینه';
+}
+
+function showStatus(msg, kind) {
+  statusBox.className = 'status show ' + (kind || 'info');
+  statusBox.innerHTML = msg;
+}
+
+actionBtn.addEventListener('click', async () => {
+  if (!currentJobId) {
+    await uploadFile();
+  } else {
+    await startPayment();
+  }
+});
+
+async function uploadFile() {
+  actionBtn.disabled = true;
+  showStatus('در حال آپلود...<span class="spinner"></span>', 'info');
+  const formData = new FormData();
+  formData.append('file', selectedFile);
+  try {
+    const res = await fetch('/api/jobs', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) { showStatus(data.detail || 'خطا در آپلود فایل.', 'err'); actionBtn.disabled = false; return; }
+    currentJobId = data.job_id;
+    const toman = Math.round(data.price_rials / 10).toLocaleString('fa-IR');
+    priceLabel.innerHTML = 'هزینه این تبدیل: <b>' + toman + ' تومان</b>';
+    statusBox.className = 'status';
+    actionBtn.textContent = 'پرداخت و شروع تبدیل';
+    actionBtn.disabled = false;
+  } catch (e) {
+    showStatus('خطا در ارتباط با سرور.', 'err');
+    actionBtn.disabled = false;
+  }
+}
+
+async function startPayment() {
+  actionBtn.disabled = true;
+  showStatus('در حال انتقال به درگاه پرداخت...<span class="spinner"></span>', 'info');
+  try {
+    const res = await fetch(`/api/jobs/${currentJobId}/pay`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { showStatus(data.detail || 'خطا در شروع پرداخت.', 'err'); actionBtn.disabled = false; return; }
+    window.location.href = data.pay_url;
+  } catch (e) {
+    showStatus('خطا در ارتباط با سرور.', 'err');
+    actionBtn.disabled = false;
+  }
+}
+
+// --- Handle return from ZarinPal (job_id + payment=success/cancelled/failed in URL) ---
+(function handleReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const jobId = params.get('job_id');
+  const payment = params.get('payment');
+  if (!jobId) return;
+
+  dropZone.style.display = 'none';
+  actionBtn.style.display = 'none';
+
+  if (payment === 'cancelled') {
+    showStatus('پرداخت لغو شد. برای تلاش مجدد صفحه را رفرش کنید.', 'err');
+    return;
+  }
+  if (payment === 'failed') {
+    showStatus('پرداخت ناموفق بود. مبلغی از حساب شما کسر نشده است.', 'err');
+    return;
+  }
+  if (payment === 'success') {
+    showStatus('پرداخت موفق بود. در حال تبدیل فایل...<span class="spinner"></span>', 'info');
+    pollStatus(jobId);
+  }
+})();
+
+async function pollStatus(jobId) {
+  try {
+    const res = await fetch(`/api/jobs/${jobId}/status`);
+    const data = await res.json();
+    if (data.status === 'done') {
+      showStatus('تبدیل با موفقیت انجام شد.', 'ok');
+      const link = document.createElement('a');
+      link.className = 'dl';
+      link.href = `/api/jobs/${jobId}/download?token=${data.download_token}`;
+      link.textContent = '⬇ دانلود فایل DGS';
+      statusBox.after(link);
+      return;
+    }
+    if (data.status === 'failed') {
+      showStatus(data.error_message || 'تبدیل با خطا مواجه شد.', 'err');
+      return;
+    }
+    // still converting/paid/queued -- keep polling
+    setTimeout(() => pollStatus(jobId), 2500);
+  } catch (e) {
+    setTimeout(() => pollStatus(jobId), 4000);
+  }
+}
+</script>
+</body>
+</html>

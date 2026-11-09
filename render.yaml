@@ -1,0 +1,36 @@
+# Render.com Blueprint -- https://render.com/docs/blueprint-spec
+# Deploy steps:
+#   1. Push this geogrid_web/ folder to a new GitHub repository.
+#   2. On render.com: New -> Blueprint -> connect that repo.
+#   3. Render reads this file and creates the service automatically.
+#   4. Fill in the environment variables below in Render's dashboard
+#      (ZARINPAL_MERCHANT_ID, etc.) -- see .env.example for what each does.
+#   5. Render gives you a public https://<name>.onrender.com URL instantly.
+#      Set SITE_BASE_URL to that exact URL (required for ZarinPal's callback).
+#
+# Free tier note: the free instance type sleeps after 15 min of
+# inactivity and wakes on the next request (a few seconds delay) --
+# fine for testing, not for a real production launch.
+
+services:
+  - type: web
+    name: geogrid-web
+    env: docker
+    plan: free
+    envVars:
+      - key: ZARINPAL_MERCHANT_ID
+        value: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      - key: ZARINPAL_SANDBOX
+        value: "true"
+      - key: GEOGRID_PRICE_RIALS
+        value: "500000"
+      - key: SITE_BASE_URL
+        value: https://geogrid-web.onrender.com
+      - key: GEOGRID_MAX_UPLOAD_MB
+        value: "100"
+      - key: GEOGRID_JOB_RETENTION_HOURS
+        value: "48"
+    disk:
+      name: geogrid-storage
+      mountPath: /app/storage
+      sizeGB: 1

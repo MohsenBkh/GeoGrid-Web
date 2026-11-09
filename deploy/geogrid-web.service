@@ -1,0 +1,25 @@
+# systemd unit for GeoGrid Web (FastAPI + Gunicorn)
+# Install:  sudo cp deploy/geogrid-web.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now geogrid-web
+
+[Unit]
+Description=GeoGrid Web (shapefile -> DGS conversion service)
+After=network.target
+
+[Service]
+Type=simple
+User=geogrid
+Group=geogrid
+WorkingDirectory=/opt/geogrid_web
+EnvironmentFile=/opt/geogrid_web/.env
+ExecStart=/opt/geogrid_web/venv/bin/gunicorn app.main:app \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 120
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
