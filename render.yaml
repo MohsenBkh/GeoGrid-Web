@@ -1,36 +1,55 @@
 # Render.com Blueprint -- https://render.com/docs/blueprint-spec
-# Deploy steps:
-#   1. Push this geogrid_web/ folder to a new GitHub repository.
-#   2. On render.com: New -> Blueprint -> connect that repo.
-#   3. Render reads this file and creates the service automatically.
-#   4. Fill in the environment variables below in Render's dashboard
-#      (ZARINPAL_MERCHANT_ID, etc.) -- see .env.example for what each does.
-#   5. Render gives you a public https://<name>.onrender.com URL instantly.
-#      Set SITE_BASE_URL to that exact URL (required for ZarinPal's callback).
 #
-# Free tier note: the free instance type sleeps after 15 min of
-# inactivity and wakes on the next request (a few seconds delay) --
-# fine for testing, not for a real production launch.
+# Deploy steps:
+#   1. Push this folder to a (private) GitHub repository.
+#   2. On render.com: New -> Blueprint -> connect that repo.
+#   3. Render reads this file, builds the Dockerfile and starts the service.
+#   4. Set ZARINPAL_MERCHANT_ID in the dashboard (Environment tab).
+#   5. Open the https://<name>.onrender.com URL Render gives you.
+#
+# SITE_BASE_URL is NOT set here on purpose: the app derives it from
+# RENDER_EXTERNAL_URL, which Render injects with the real hostname. If the
+# name "geogrid-web" is already taken, Render assigns geogrid-web-xxxx and
+# the ZarinPal callback keeps working. Set SITE_BASE_URL only if you put a
+# custom domain in front of the service.
+#
+# FREE TIER NOTES (read before announcing the site):
+#   * 512 MB RAM / 0.1 CPU  -> GEOGRID_MAX_UPLOAD_MB is kept at 25 so a
+#     single conversion can't OOM the instance.
+#   * The free instance sleeps after 15 min of inactivity and wakes on the
+#     next request (cold start of a few seconds).
+#   * Free instances have an EPHEMERAL filesystem. Persistent disks require
+#     a paid instance type, so /app/storage (uploads, converted .xlsx files
+#     and the SQLite job DB) is wiped on every deploy/restart/spin-down.
+#     Fine for testing; for real paid traffic move to Starter (then uncomment
+#     the `disk:` block at the bottom and set GEOGRID_STORAGE_DIR=/var/data).
 
 services:
   - type: web
     name: geogrid-web
-    env: docker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
+    region: frankfurt
+    healthCheckPath: /healthz
     envVars:
       - key: ZARINPAL_MERCHANT_ID
-        value: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        sync: false # prompts you for the real value on first deploy
       - key: ZARINPAL_SANDBOX
         value: "true"
       - key: GEOGRID_PRICE_RIALS
         value: "500000"
-      - key: SITE_BASE_URL
-        value: https://geogrid-web.onrender.com
       - key: GEOGRID_MAX_UPLOAD_MB
-        value: "100"
+        value: "25"
       - key: GEOGRID_JOB_RETENTION_HOURS
         value: "48"
-    disk:
-      name: geogrid-storage
-      mountPath: /app/storage
-      sizeGB: 1
+      - key: GEOGRID_CLEANUP_INTERVAL_HOURS
+        value: "6" # in-app cleaner; Render does not run host cron
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    # --- Paid plan only: persistent storage across restarts ---------------
+    # disk:
+    #   name: geogrid-storage
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # ...and then add:  - key: GEOGRID_STORAGE_DIR  /  value: /var/data
