@@ -51,10 +51,51 @@ put its merchant ID in `.env` -- real ZarinPal sandbox accounts are
 free and instant to create, and let you test the full payment flow
 with fake money.
 
-## Going live: step-by-step (starting from nothing)
+## Deploy on Render (free, no server or domain needed)
 
-You said you have neither a domain nor a server -- here's the full
-path:
+Everything Render needs is already in this folder: `Dockerfile` (the app
+image) and `render.yaml` (a Blueprint describing the service).
+
+1. Push this folder to a **private** GitHub repository (`git init` in this
+   folder, commit, push to `main`).
+2. On [render.com](https://render.com): sign up with GitHub → **New** →
+   **Blueprint** → pick the repo → **Apply**.
+3. Render asks for `ZARINPAL_MERCHANT_ID` (it is marked `sync: false`).
+   Leave the placeholder or paste a free
+   [sandbox merchant id](https://sandbox.zarinpal.com) — the rest is
+   pre-filled by `render.yaml`.
+4. Wait for the build (**Logs** tab). When the service is **Live**, open
+   `https://<service-name>.onrender.com`.
+
+`SITE_BASE_URL` needs no configuration: the app reads Render's
+`RENDER_EXTERNAL_URL`, so the ZarinPal callback stays correct even if
+Render renames the service (e.g. `geogrid-web-abc1`). Set `SITE_BASE_URL`
+explicitly only if you add a custom domain.
+
+Useful endpoints: `GET /healthz` (Render's health check), `GET /docs`
+(FastAPI's API browser).
+
+### Free-tier limits worth knowing before you share the link
+
+- **Sleeping**: the free instance stops after 15 min of inactivity and
+  cold-starts on the next request (a few seconds).
+- **Ephemeral disk**: persistent disks are paid-only, so `storage/`
+  (uploads, converted `.xlsx`, the SQLite job DB) is wiped on every
+  deploy/restart/sleep. Fine for a test, **not** acceptable for real paying
+  users — for that, upgrade to a paid instance and uncomment the `disk:`
+  block at the bottom of `render.yaml` (plus `GEOGRID_STORAGE_DIR=/var/data`).
+- **0.1 CPU / 512 MB RAM**: `GEOGRID_MAX_UPLOAD_MB=25` in `render.yaml`
+  keeps a single conversion from exhausting memory; raise it only with a
+  bigger plan.
+- **Sandbox only**: with `ZARINPAL_SANDBOX=true` no real money moves. Real
+  payments require a verified merchant account at
+  [next.zarinpal.com](https://next.zarinpal.com) and
+  `ZARINPAL_SANDBOX=false`.
+
+## Going live on a VPS: step-by-step (starting from nothing)
+
+If you'd rather have a server you control (no sleeping, persistent disk,
+custom domain), here's the full path:
 
 ### 1. Get a VPS (virtual server)
 Pick one and create the cheapest Ubuntu 22.04 instance (1-2 GB RAM is
@@ -119,8 +160,11 @@ Toman) -- `500000` Rials = `50000` Toman.
 ## File retention
 
 Uploaded/converted files are deleted automatically after
-`GEOGRID_JOB_RETENTION_HOURS` (default 48h) by the
-`geogrid-cleanup.timer` systemd timer. Run it manually any time with
+`GEOGRID_JOB_RETENTION_HOURS` (default 48h). Two mechanisms exist — the app
+runs a cleaner thread every `GEOGRID_CLEANUP_INTERVAL_HOURS` (default 6h,
+set `0` to disable), which is what makes retention work on Render/Docker
+where no host cron exists; on a VPS you can instead run
+`deploy/geogrid-cleanup.timer`. Run it manually any time with
 `python -m app.cleanup`.
 
 ## Known limitations of this MVP

@@ -11,6 +11,23 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_dotenv():
+    """Load ROOT_DIR/.env if python-dotenv is available.
+
+    Real environment variables always win, so the same code works on a VPS
+    (systemd EnvironmentFile), on Render/Fly/Docker (plain env vars) and
+    locally (just a .env file, nothing to export by hand).
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(ROOT_DIR / ".env", override=False)
+
+
+_load_dotenv()
+
 # --- ZarinPal ---------------------------------------------------------
 # Sandbox merchant id works out of the box for testing with NO real
 # money and NO merchant account -- https://sandbox.zarinpal.com
@@ -33,10 +50,21 @@ PRICE_RIALS = int(os.environ.get("GEOGRID_PRICE_RIALS", "500000"))  # placeholde
 # --- Site ----------------------------------------------------------------
 # Public base URL of this site (used to build the ZarinPal callback URL).
 # MUST be a real https:// URL in production -- ZarinPal requires it.
-SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "http://localhost:8000")
+# Precedence: explicit SITE_BASE_URL  ->  platform-provided URL
+#             (RENDER_EXTERNAL_URL on Render)  ->  localhost for dev.
+# That way a Render deploy works even if the env var is left blank, and a
+# service name collision (geogrid-web-xxxx.onrender.com) can't silently
+# break the payment callback.
+SITE_BASE_URL = (
+    os.environ.get("SITE_BASE_URL")
+    or os.environ.get("RENDER_EXTERNAL_URL")
+    or "http://localhost:8000"
+).rstrip("/")
 
 # --- Storage ---------------------------------------------------------------
-STORAGE_DIR = ROOT_DIR / "storage"
+# GEOGRID_STORAGE_DIR lets a platform point storage at a mounted disk
+# (e.g. /data) without touching code. Defaults to <project>/storage.
+STORAGE_DIR = Path(os.environ.get("GEOGRID_STORAGE_DIR") or (ROOT_DIR / "storage"))
 UPLOADS_DIR = STORAGE_DIR / "uploads"
 OUTPUTS_DIR = STORAGE_DIR / "outputs"
 DB_PATH = STORAGE_DIR / "db" / "geogrid_web.sqlite3"
@@ -47,6 +75,9 @@ for d in (UPLOADS_DIR, OUTPUTS_DIR, DB_PATH.parent):
 # --- Limits ------------------------------------------------------------
 MAX_UPLOAD_MB = int(os.environ.get("GEOGRID_MAX_UPLOAD_MB", "100"))
 JOB_RETENTION_HOURS = int(os.environ.get("GEOGRID_JOB_RETENTION_HOURS", "48"))
+# How often the in-app cleaner runs. Set to 0 to disable it (e.g. when an
+# external cron/systemd timer already runs `python -m app.cleanup`).
+CLEANUP_INTERVAL_HOURS = float(os.environ.get("GEOGRID_CLEANUP_INTERVAL_HOURS", "6"))
 
 # --- Engine resource files (bundled config/template, see shp2dgs.core.config_io) ---
 ENGINE_CONFIG_PATH = ROOT_DIR / "config.json"

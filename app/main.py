@@ -8,24 +8,65 @@ Run locally:  uvicorn app.main:app --reload --port 8000
 Run in prod:  see docs/deployment.md (gunicorn + nginx + systemd)
 """
 import logging
+import threading
+import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 
-from . import db, settings, worker
+from . import cleanup, db, settings, worker
 from .uploads import save_and_extract, UploadError
 from .zarinpal import request_payment, verify_payment, ZarinPalError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("geogrid_web")
 
-app = FastAPI(title="GeoGrid Web")
-app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+_stop_cleanup = threading.Event()
+
+
+def _cleanup_loop():
+    """Delete expired uploads/outputs periodically.
+
+    On a VPS this is done by the systemd timer (deploy/geogrid-cleanup.timer),
+    but container platforms such as Render/Fly/Docker don't run host cron, so
+    the app does it itself. Runs every GEOGRID_CLEANUP_INTERVAL_HOURS hours;
+    the first pass is delayed so it doesn't compete with startup.
+    """
+    interval = max(settings.CLEANUP_INTERVAL_HOURS, 0.25) * 3600
+    while not _stop_cleanup.wait(min(interval, 300)):
+        pass
+    while not _stop_cleanup.is_set():
+        try:
+            cleanup.run()
+        except Exception:
+            logger.exception("scheduled cleanup failed")
+        _stop_cleanup.wait(interval)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info("GeoGrid Web starting -- storage=%s, site_base_url=%s, sandbox=%s",
+                settings.STORAGE_DIR, settings.SITE_BASE_URL, settings.ZARINPAL_SANDBOX)
+    thread = None
+    if settings.CLEANUP_INTERVAL_HOURS > 0:
+        thread = threading.Thread(target=_cleanup_loop, name="geogrid-cleanup", daemon=True)
+        thread.start()
+    yield
+    _stop_cleanup.set()
+
+
+app = FastAPI(title="GeoGrid Web", lifespan=lifespan)
 
 db.init_db()
+
+
+@app.get("/healthz")
+def healthz():
+    """Liveness probe (Render health check / uptime monitors)."""
+    return {"status": "ok", "time": time.time()}
 
 
 @app.get("/", response_class=HTMLResponse)

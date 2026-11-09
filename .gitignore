@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Secrets / local config
+.env
+
+# Runtime data: uploads, converted files, sqlite job DB
+storage/
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
